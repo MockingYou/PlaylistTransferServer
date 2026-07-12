@@ -12,5 +12,7 @@ public class TransferResult {
     int totalTracks;
     int matchedTracks;
     List<String> unmatchedTrackTitles;
-    String warning; // non-null if the transfer completed partially, e.g. due to quota exhaustion
+    int skippedDuplicates;
+    String warning;
+    boolean appendedToExisting;
 }

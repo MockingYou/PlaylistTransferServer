@@ -231,4 +231,9 @@ public class YoutubeProviderAdapter implements MusicProviderPort {
             default -> new ProviderApiException("YouTube API error (" + status + ") for " + context + ": " + e.getMessage(), e);
         };
     }
+
+    @Override
+    public String extractPlaylistId(String playlistUrlOrId) {
+        return YoutubeUrlParser.extractPlaylistId(playlistUrlOrId);
+    }
 }

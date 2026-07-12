@@ -19,4 +19,8 @@ public class WebClientConfig {
                 .exchangeStrategies(strategies)
                 .build();
     }
+    @Bean
+    public WebClient.Builder webClientBuilder() {
+        return WebClient.builder();
+    }
 }

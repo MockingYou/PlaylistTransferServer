@@ -16,5 +16,7 @@ public class TransferRequest {
     @NotBlank
     private String sourcePlaylistUrl;
 
-    private String destinationPlaylistName; // optional — falls back to source playlist's name if blank
+    private String destinationPlaylistName;
+
+    private String destinationPlaylistUrl;
 }

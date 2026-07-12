@@ -9,10 +9,7 @@ import com.app.transfer.ports.out.MusicProviderPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -33,6 +30,7 @@ public class TransferPlaylistService implements TransferPlaylistUseCase {
             StreamingProvider destinationProvider,
             String sourcePlaylistUrl,
             String destinationPlaylistName,
+            String destinationPlaylistUrl,
             Map<StreamingProvider, String> accessTokensByProvider
     ) {
         MusicProviderPort source = resolve(sourceProvider);
@@ -41,20 +39,38 @@ public class TransferPlaylistService implements TransferPlaylistUseCase {
         String sourceToken = requireToken(accessTokensByProvider, sourceProvider);
         String destinationToken = requireToken(accessTokensByProvider, destinationProvider);
 
-        // 1. Fetch source playlist
         Playlist sourcePlaylist = source.fetchPlaylist(sourcePlaylistUrl, sourceToken);
 
-        String finalName = (destinationPlaylistName != null && !destinationPlaylistName.isBlank())
-                ? destinationPlaylistName
-                : sourcePlaylist.getName();
+        String destinationPlaylistId;
+        boolean isNewPlaylist;
+        Set<String> existingTrackIds = Collections.emptySet();
 
-        // 2. Create destination playlist upfront — so even a partial transfer leaves something usable
-        String destinationPlaylistId = destination.createPlaylist(
-                null, finalName, sourcePlaylist.getDescription(), true, destinationToken);
+        if (destinationPlaylistUrl != null && !destinationPlaylistUrl.isBlank()) {
+            destinationPlaylistId = destination.extractPlaylistId(destinationPlaylistUrl);
+            isNewPlaylist = false;
 
-        // 3. Search each track on destination, collecting matches and misses.
-        List<String> matchedTrackIds = new ArrayList<>();
+            // Fetch what's already in the destination so we can skip re-adding it.
+            // This costs one extra read call, but it's cheap (1 unit on YouTube,
+            // no special cost on Spotify) compared to the cost of a messy, duplicated playlist.
+            Playlist existingPlaylist = destination.fetchPlaylist(destinationPlaylistId, destinationToken);
+            existingTrackIds = new HashSet<>();
+            for (Track t : existingPlaylist.getTracks()) {
+                existingTrackIds.add(t.getSourceProviderId());
+            }
+        } else {
+            String finalName = (destinationPlaylistName != null && !destinationPlaylistName.isBlank())
+                    ? destinationPlaylistName
+                    : sourcePlaylist.getName();
+            destinationPlaylistId = destination.createPlaylist(
+                    null, finalName, sourcePlaylist.getDescription(), true, destinationToken);
+            isNewPlaylist = true;
+        }
+
+        // LinkedHashSet: dedupes automatically, preserves first-seen order —
+        // covers the case where the SOURCE playlist itself has the same song twice.
+        Set<String> matchedTrackIds = new LinkedHashSet<>();
         List<String> unmatchedTitles = new ArrayList<>();
+        int skippedDuplicates = 0;
         String warning = null;
 
         List<Track> sourceTracks = sourcePlaylist.getTracks();
@@ -64,7 +80,16 @@ public class TransferPlaylistService implements TransferPlaylistUseCase {
             for (Track track : sourceTracks) {
                 Optional<String> match = destination.searchTrack(track, destinationToken);
                 if (match.isPresent()) {
-                    matchedTrackIds.add(match.get());
+                    String matchedId = match.get();
+
+                    boolean alreadyInDestination = existingTrackIds.contains(matchedId);
+                    boolean alreadyQueuedThisRun = matchedTrackIds.contains(matchedId);
+
+                    if (alreadyInDestination || alreadyQueuedThisRun) {
+                        skippedDuplicates++;
+                    } else {
+                        matchedTrackIds.add(matchedId);
+                    }
                 } else {
                     unmatchedTitles.add(track.getTitle() + " - " + track.getArtist());
                 }
@@ -77,7 +102,7 @@ public class TransferPlaylistService implements TransferPlaylistUseCase {
         }
 
         if (!matchedTrackIds.isEmpty()) {
-            destination.addTracksToPlaylist(destinationPlaylistId, matchedTrackIds, destinationToken);
+            destination.addTracksToPlaylist(destinationPlaylistId, new ArrayList<>(matchedTrackIds), destinationToken);
         }
 
         return TransferResult.builder()
@@ -85,7 +110,9 @@ public class TransferPlaylistService implements TransferPlaylistUseCase {
                 .totalTracks(sourceTracks.size())
                 .matchedTracks(matchedTrackIds.size())
                 .unmatchedTrackTitles(unmatchedTitles)
+                .skippedDuplicates(skippedDuplicates)
                 .warning(warning)
+                .appendedToExisting(!isNewPlaylist)
                 .build();
     }
 

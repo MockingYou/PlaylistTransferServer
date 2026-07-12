@@ -316,4 +316,9 @@ public class SpotifyProviderAdapter implements MusicProviderPort {
             default -> new ProviderApiException("Spotify API error (" + status + ") for " + context + ": " + e.getMessage(), e);
         };
     }
+
+    @Override
+    public String extractPlaylistId(String playlistUrlOrId) {
+        return SpotifyUrlParser.extractPlaylistId(playlistUrlOrId);
+    }
 }

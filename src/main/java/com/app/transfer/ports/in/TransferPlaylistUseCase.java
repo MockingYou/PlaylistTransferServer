@@ -11,6 +11,7 @@ public interface TransferPlaylistUseCase {
             StreamingProvider destinationProvider,
             String sourcePlaylistUrl,
             String destinationPlaylistName,
+            String destinationPlaylistUrl,
             Map<StreamingProvider, String> accessTokensByProvider
     );
 }
